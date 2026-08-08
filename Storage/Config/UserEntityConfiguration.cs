@@ -11,7 +11,7 @@ public class UserEntityConfiguration : IEntityTypeConfiguration<UserEntity>
         entity.Property(u => u.FirstName).IsRequired().HasMaxLength(50);
         entity.Property(u => u.MiddleName).HasMaxLength(50);
         entity.Property(u => u.LastName).IsRequired().HasMaxLength(50);
-        entity.Property(u => u.Password).IsRequired().HasMaxLength(255);
+        entity.Property(u => u.PasswordHash).IsRequired().HasMaxLength(255);
         entity.Property(u => u.IsDeleted).IsRequired();
         entity.Property(u => u.CreatedOn).HasColumnType("timestamptz");
         entity.Property(u => u.DeletedOn).HasColumnType("timestamptz");

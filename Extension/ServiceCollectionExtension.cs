@@ -1,48 +1,93 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using Todo.Entities;
+using Todo.Model;
 using Todo.Services.Interfaces;
+using Todo.Services.Providers;
 using Todo.Storage.Repository.Interfaces;
+using Todo.Storage.Repository.Providers;
 
 namespace Todo.Extension;
 
-// STEP 1: Create extension method for IServiceCollection
-// This extension method centralizes all dependency injection configuration
-// It follows the single responsibility principle by keeping DI logic separate
 public static class ServiceCollectionExtension
 {
-    // STEP 2: Define the extension method to register all services
-    // This method will be called in Program.cs to configure the application's services
-    public static IServiceCollection AddApiOptions(this IServiceCollection services)
+    public static IServiceCollection AddApiOptions(this IServiceCollection services, IConfiguration configuration)
     {
-        // STEP 3: Register ASP.NET Core Identity PasswordHasher
-        // This is used for secure password hashing and verification
+        services.Configure<JwtSettings>(configuration.GetSection(nameof(JwtSettings)));
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<JwtSettings>>().Value);
+        return services;
+    }
+
+    public static IServiceCollection AddApiRepositories(this IServiceCollection services)
+    {
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<ITagRepository, TagRepository>();
+        services.AddScoped<IActivityRepository, ActivityRepository>();
+        services.AddScoped<ICategoryRepository, CategoryRepository>();
+        services.AddScoped<ICommentRepository, CommentRepository>();
+        services.AddScoped<IFileAttachmentRepository, FileAttachmentRepository>();
+
+        return services;
+    }
+
+    public static IServiceCollection AddApiServices(this IServiceCollection services)
+    {
         services.AddScoped<IPasswordHasher<UserEntity>, PasswordHasher<UserEntity>>();
+        services.AddScoped<IUserService, UserService>();
+        services.AddScoped<ITagService, TagService>();
+        services.AddScoped<IJwtTokenService, JwtTokenService>();
+        services.AddScoped<IActivityService, ActivityService>();
+        services.AddScoped<ICategoryService, CategoryService>();
+        services.AddScoped<ICommentService, CommentService>();
+        services.AddScoped<IFileAttachmentService, FileAttachmentService>();
+        services.AddScoped<IAuthService, AuthService>();
 
-        // STEP 4: Register Repository services
-        // Repositories are registered with scoped lifetime (per HTTP request)
-        // This is appropriate for Entity Framework DbContext
-        services.AddScoped<IUserRepository, Todo.Storage.Repository.Providers.UserRepository>();
-        services.AddScoped<IActivityRepository, Todo.Storage.Repository.Providers.ActivityRepository>();
-        services.AddScoped<ICategoryRepository, Todo.Storage.Repository.Providers.CategoryRepository>();
-        services.AddScoped<ICommentRepository, Todo.Storage.Repository.Providers.CommentRepository>();
-        services.AddScoped<ITagRepository, Todo.Storage.Repository.Providers.TagRepository>();
-        services.AddScoped<IFileAttachmentRepository, Todo.Storage.Repository.Providers.FileAttachmentRepository>();
+        return services;
+    }
 
-        // STEP 5: Register Service layer
-        // Services are also registered with scoped lifetime
-        // They orchestrate business logic and coordinate between controllers and repositories
-        services.AddScoped<IUserService, Todo.Services.Providers.UserService>();
-        services.AddScoped<IActivityService, Todo.Services.Providers.ActivityService>();
-        services.AddScoped<ICategoryService, Todo.Services.Providers.CategoryService>();
-        services.AddScoped<ICommentService, Todo.Services.Providers.CommentService>();
-        services.AddScoped<ITagService, Todo.Services.Providers.TagService>();
-        services.AddScoped<IFileAttachmentService, Todo.Services.Providers.FileAttachmentService>();
 
-        // STEP 6: Register Authentication service
-        // Handles user authentication and JWT token generation
-        services.AddScoped<IAuthService, Todo.Services.Providers.AuthService>();
+    public static IServiceCollection AddBearerAuth(this IServiceCollection services, IConfiguration configuration)
+    {
+        var key = configuration.GetValue<string>("JwtSettings:Key");
+        if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("No secret key provided");
 
-        // STEP 7: Return the service collection for method chaining
+        var encodedKey = Encoding.UTF8.GetBytes(key);
+
+        var audience = configuration.GetValue<string>("JwtSettings:Audience");
+        if (string.IsNullOrWhiteSpace(audience)) throw new ArgumentException("No audience Provided");
+
+        var issuer = configuration.GetValue<string>("JwtSettings:Issuer");
+        if (string.IsNullOrWhiteSpace(issuer)) throw new ArgumentException("No issuer provided");
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
+        {
+            o.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidAlgorithms = new string[] { SecurityAlgorithms.HmacSha256 },
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuer = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = issuer,
+                ValidAudience = audience,
+                IssuerSigningKey = new SymmetricSecurityKey(encodedKey)
+            };
+        });
+        return services;
+    }
+
+    public static IServiceCollection AddAllApiServices(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddApiOptions(configuration);
+        services.AddApiRepositories();
+        services.AddApiServices();
+        services.AddBearerAuth(configuration);
+
         return services;
     }
 }

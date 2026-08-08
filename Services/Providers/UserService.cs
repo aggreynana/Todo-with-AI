@@ -19,23 +19,27 @@ public class UserService : IUserService
     // This follows the dependency injection pattern for loose coupling
     private readonly IUserRepository _userRepository;
     private readonly IPasswordHasher<UserEntity> _passwordHasher;
+    private readonly IJwtTokenService _jwtTokenService;
+    private readonly JwtSettings _jwtSettings;
 
-    public UserService(IUserRepository userRepository, IPasswordHasher<UserEntity> passwordHasher)
+    public UserService(IUserRepository userRepository, IPasswordHasher<UserEntity> passwordHasher, IJwtTokenService jwtTokenService, JwtSettings jwtSettings)
     {
         _userRepository = userRepository;
         _passwordHasher = passwordHasher;
+        _jwtTokenService = jwtTokenService;
+        _jwtSettings = jwtSettings;
     }
 
-    // STEP 3: Implement CerateUserAsync method (note: keeping original method name with typo to match interface)
-    // This method handles the creation of a new user
-    public async Task<ApiResponse<GetUserResponseDto>> CreateUserAsync(CreateUserRequestDto userDto)
+    // STEP 3: Implement CreateUserAsync method
+    // This method handles the creation of a new user with auto-login functionality
+    public async Task<ApiResponse<AuthResponseDto>> CreateUserAsync(CreateUserRequestDto userDto)
     {
         try
         {
-            // First check if the user alrady exist in our database
+            // First check if the user already exists in our database
             var user = await _userRepository.GetUserByEmailAsync(userDto.Email);
             if (user != null)
-                return ApiResponse<GetUserResponseDto>.Conflict();
+                return ApiResponse<AuthResponseDto>.Conflict();
 
             // STEP 4: Map the DTO to the entity
             // Convert the incoming DTO to the domain entity for database operations
@@ -48,52 +52,67 @@ public class UserService : IUserService
                 // Id and CreatedOn are set automatically in BaseEntity
             };
 
-            // STEP 4b: Hash the password using ASP.NET Core Identity's password hasher
+            // STEP 5: Hash the password using ASP.NET Core Identity's password hasher
             // This provides secure password hashing before storing in the database
             userEntity.PasswordHash = _passwordHasher.HashPassword(userEntity, userDto.Password);
 
-            // STEP 5: Call the repository to add the entity to the database
+            // STEP 6: Call the repository to add the entity to the database
             var isUserAdded = await _userRepository.AddUserAsync(userEntity);
 
-            // STEP 6: Check if the operation was successful
+            // STEP 7: Check if the operation was successful
             if (!isUserAdded)
             {
-                // STEP 7: Return an error response if creation failed
-                return ApiResponse<GetUserResponseDto>.InternalServerError();
+                // STEP 8: Return an error response if creation failed
+                return ApiResponse<AuthResponseDto>.InternalServerError();
             }
 
-            // STEP 8: Map the entity back to DTO for the response
-            var responseDto = MapToResponseDto(userEntity);
+            // STEP 9: Generate JWT token for the newly created user
+            // This provides auto-login functionality after registration
+            var token = _jwtTokenService.GenerateJwtToken(userEntity);
 
-            // STEP 9: Return a success response with the created user
-            return ApiResponse<GetUserResponseDto>.CreatedResponse("User", responseDto);
+            // STEP 10: Calculate token expiration time using JwtSettings
+            var expiration = DateTime.UtcNow.AddMinutes(_jwtSettings.ExpirationInMinutes);
+
+            // STEP 11: Map the entity back to DTO for the response
+            var responseDto = new AuthResponseDto()
+            {
+                Token = token,
+                Expiration = expiration,
+                UserId = userEntity.Id,
+                Email = userEntity.Email,
+                FirstName = userEntity.FirstName,
+                LastName = userEntity.LastName
+            };
+
+            // STEP 12: Return a success response with the created user
+            return ApiResponse<AuthResponseDto>.CreatedResponse("User", responseDto);
         }
         catch (Exception)
         {
             // Log the exception (consider adding logging here)
             // Return a generic error response to avoid exposing sensitive information
-            return ApiResponse<GetUserResponseDto>.InternalServerError();
+            return ApiResponse<AuthResponseDto>.InternalServerError();
         }
     }
 
-    // STEP 10: Implement GetUserByIdAsync method
+    // STEP 11: Implement GetUserByIdAsync method
     // This method retrieves a single user by its unique identifier
     public async Task<ApiResponse<GetUserResponseDto>?> GetUserByIdAsync(string id)
     {
-        // STEP 11: Call the repository to get the user
+        // STEP 12: Call the repository to get the user
         var userEntity = await _userRepository.GetUserById(id);
 
-        // STEP 12: Check if the user exists
+        // STEP 13: Check if the user exists
         if (userEntity == null)
         {
-            // STEP 13: Return null if user not found
+            // STEP 14: Return null if user not found
             return ApiResponse<GetUserResponseDto>.Conflict();
         }
 
-        // STEP 14: Map the entity to DTO
+        // STEP 15: Map the entity to DTO
         var responseDto = MapToResponseDto(userEntity);
 
-        // STEP 15: Return the user in a success response
+        // STEP 16: Return the user in a success response
         return ApiResponse<GetUserResponseDto>.OkResponse("User retrieved successfully", responseDto);
     }
 
@@ -124,75 +143,75 @@ public class UserService : IUserService
         return ApiResponse<PageResultResponseDto<GetUserResponseDto>>.OkResponse("Users retrieved successfully", pageResult);
     }
 
-    // STEP 20: Implement UpdateUserAsync method
+    // STEP 21: Implement UpdateUserAsync method
     // This method updates an existing user
     public async Task<ApiResponse<GetUserResponseDto>> UpdateUserAsync(string id, UpdateUserRequestDto userUpdate)
     {
-        // STEP 21: First, retrieve the existing user by ID
+        // STEP 22: First, retrieve the existing user by ID
         var existingUser = await _userRepository.GetUserById(id);
 
-        // STEP 22: Check if the user exists
+        // STEP 23: Check if the user exists
         if (existingUser == null)
         {
-            // STEP 23: Return an error response if user not found
+            // STEP 24: Return an error response if user not found
             return ApiResponse<GetUserResponseDto>.NotFound("User not found");
         }
 
-        // STEP 24: Update only the fields that are provided (partial update)
+        // STEP 25: Update only the fields that are provided (partial update)
         // Note: Email is not updated as it's used as an identifier
         existingUser.FirstName = userUpdate.FirstName;
         existingUser.MiddleName = userUpdate.MiddleName;
         existingUser.LastName = userUpdate.LastName;
 
-        // STEP 25: Set the ModifiedOn timestamp
+        // STEP 26: Set the ModifiedOn timestamp
         existingUser.ModifiedOn = DateTime.UtcNow;
 
-        // STEP 26: Call the repository to update the entity
+        // STEP 27: Call the repository to update the entity
         var isUserUpdated = await _userRepository.UpdateUSerAsync(existingUser);
 
-        // STEP 27: Check if the update was successful
+        // STEP 28: Check if the update was successful
         if (!isUserUpdated)
         {
-            // STEP 28: Return an error response if update failed
+            // STEP 29: Return an error response if update failed
             return ApiResponse<GetUserResponseDto>.InternalServerError();
         }
 
-        // STEP 29: Map the updated entity to DTO
+        // STEP 30: Map the updated entity to DTO
         var responseDto = MapToResponseDto(existingUser);
 
-        // STEP 30: Return a success response with the updated user
+        // STEP 31: Return a success response with the updated user
         return ApiResponse<GetUserResponseDto>.AcceptedResponse();
     }
 
-    // STEP 31: Implement DeleteUserByIdAsync method
+    // STEP 32: Implement DeleteUserByIdAsync method
     // This method deletes a user by its ID
     public async Task<ApiResponse<bool>> DeleteUserByIdAsync(string id)
     {
-        // STEP 32: First, retrieve the existing user
+        // STEP 33: First, retrieve the existing user
         var existingUser = await _userRepository.GetUserById(id);
 
-        // STEP 33: Check if the user exists
+        // STEP 34: Check if the user exists
         if (existingUser == null)
         {
-            // STEP 34: Return an error response if user not found
+            // STEP 35: Return an error response if user not found
             return ApiResponse<bool>.NotFound("User not found");
         }
 
-        // STEP 35: Call the repository to delete the entity
+        // STEP 36: Call the repository to delete the entity
         var isUserDeleted = await _userRepository.DeleteUserByIdAsync(existingUser);
 
-        // STEP 36: Check if the deletion was successful
+        // STEP 37: Check if the deletion was successful
         if (!isUserDeleted)
         {
-            // STEP 37: Return an error response if deletion failed
+            // STEP 38: Return an error response if deletion failed
             return ApiResponse<bool>.InternalServerError();
         }
 
-        // STEP 38: Return a success response indicating successful deletion
+        // STEP 39: Return a success response indicating successful deletion
         return ApiResponse<bool>.NoContent();
     }
 
-    // STEP 39: Create a helper method to map Entity to DTO
+    // STEP 40: Create a helper method to map Entity to DTO
     // This private method reduces code duplication and ensures consistent mapping
     private static GetUserResponseDto MapToResponseDto(UserEntity entity)
     {

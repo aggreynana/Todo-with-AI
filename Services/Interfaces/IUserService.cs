@@ -6,7 +6,7 @@ namespace Todo.Services.Interfaces;
 
 public interface IUserService
 {
-    Task<ApiResponse<GetUserResponseDto>> CreateUserAsync(CreateUserRequestDto userDto);
+    Task<ApiResponse<AuthResponseDto>> CreateUserAsync(CreateUserRequestDto userDto);
     Task<ApiResponse<GetUserResponseDto>?> GetUserByIdAsync(string id);
     Task<ApiResponse<PageResultResponseDto<GetUserResponseDto>>> GetUsersAsync(UserFilterDto? userFilter = null);
     Task<ApiResponse<GetUserResponseDto>> UpdateUserAsync(string id, UpdateUserRequestDto userUpdate);

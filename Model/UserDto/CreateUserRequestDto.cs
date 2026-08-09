@@ -24,6 +24,6 @@ public class CreateUserRequestDto
 
 
     [Required(ErrorMessage = "this field is required")]
-    [RegularExpression("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*()])(?=.{8,})$", ErrorMessage = "The password must contain at least one upper case, one lower case, one special character, one digit, and has a minimum length of 8 characters")]
+    [RegularExpression("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*()])(.{8,})$", ErrorMessage = "The password must contain at least one upper case, one lower case, one special character, one digit, and has a minimum length of 8 characters")]
     public string Password { get; set; } = string.Empty;
 }

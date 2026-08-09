@@ -19,14 +19,7 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<ActionResult<ApiResponse<LoginResponseDto>>> Login([FromBody] LoginRequestDto loginRequest)
     {
-        var result = await _authService.LoginAsync(loginRequest);
-        
-        if (result.StatusCode == 200)
-            return Ok(result);
-        
-        if (result.StatusCode == 401)
-            return Unauthorized(result);
-        
-        return BadRequest(result);
+        var response = await _authService.LoginAsync(loginRequest);
+        return StatusCode(Response.StatusCode, response);
     }
 }

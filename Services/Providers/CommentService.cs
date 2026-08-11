@@ -9,55 +9,50 @@ using Todo.Storage.Repository.Interfaces;
 
 namespace Todo.Services.Providers;
 
-// STEP 1: Implement the ICommentService interface
-// This class contains the business logic for Comment operations
-// It acts as a bridge between the controller and the repository layer
 public class CommentService : ICommentService
 {
-    // STEP 2: Inject the ICommentRepository through constructor injection
-    // This follows the dependency injection pattern for loose coupling
     private readonly ICommentRepository _commentRepository;
+    private readonly ICacheService _cacheService;
 
-    public CommentService(ICommentRepository commentRepository)
+    public CommentService(ICommentRepository commentRepository, ICacheService cacheService)
     {
         _commentRepository = commentRepository;
+        _cacheService = cacheService;
     }
 
-    // STEP 3: Implement CreateCommentAsync method
-    // This method handles the creation of a new comment
     public async Task<ApiResponse<GetCommentResponseDto>> CreateCommentAsync(CreateCommentRequestDto commentDto)
     {
-        // STEP 4: Map the DTO to the entity
-        // Convert the incoming DTO to the domain entity for database operations
         var commentEntity = new CommentEntity
         {
             UserId = commentDto.UserId,
             ActivityId = commentDto.ActivityId,
             Message = commentDto.Message
-            // Id and CreatedOn are set automatically in BaseEntity
         };
 
-        // STEP 5: Call the repository to add the entity to the database
         var result = await _commentRepository.AddCommentAsync(commentEntity);
 
-        // STEP 6: Check if the operation was successful
         if (!result)
         {
-            // STEP 7: Return an error response if creation failed
             return ApiResponse<GetCommentResponseDto>.InternalServerError();
         }
 
-        // STEP 8: Map the entity back to DTO for the response
         var responseDto = MapToResponseDto(commentEntity);
 
-        // STEP 9: Return a success response with the created comment
         return ApiResponse<GetCommentResponseDto>.CreatedResponse("Comment", responseDto);
     }
 
-    // STEP 10: Implement GetCommentByIdAsync method
-    // This method retrieves a single comment by its unique identifier
+
     public async Task<ApiResponse<GetCommentResponseDto>?> GetCommentByIdAsync(string id)
     {
+        // Try to get from cache first
+        var cacheKey = $"comment_{id}";
+        var cachedComment = await _cacheService.GetAsync<GetCommentResponseDto>(cacheKey);
+
+        if (cachedComment != null)
+        {
+            return ApiResponse<GetCommentResponseDto>.OkResponse("Comment retrieved from cache", cachedComment);
+        }
+
         // STEP 11: Call the repository to get the comment
         var commentEntity = await _commentRepository.GetCommentById(id);
 
@@ -70,6 +65,9 @@ public class CommentService : ICommentService
 
         // STEP 14: Map the entity to DTO
         var responseDto = MapToResponseDto(commentEntity);
+
+        // Cache the result for 5 minutes
+        await _cacheService.SetAsync(cacheKey, responseDto, TimeSpan.FromMinutes(5));
 
         // STEP 15: Return the comment in a success response
         return ApiResponse<GetCommentResponseDto>.OkResponse("Comment retrieved successfully", responseDto);
@@ -136,6 +134,10 @@ public class CommentService : ICommentService
         // STEP 37: Map the updated entity to DTO
         var responseDto = MapToResponseDto(existingComment);
 
+        // Invalidate cache for this comment
+        var cacheKey = $"comment_{id}";
+        await _cacheService.RemoveAsync(cacheKey);
+
         // STEP 38: Return a success response with the updated comment
         return ApiResponse<GetCommentResponseDto>.AcceptedResponse();
     }
@@ -163,6 +165,10 @@ public class CommentService : ICommentService
             // STEP 45: Return an error response if deletion failed
             return ApiResponse<bool>.InternalServerError();
         }
+
+        // Invalidate cache for this comment
+        var cacheKey = $"comment_{id}";
+        await _cacheService.RemoveAsync(cacheKey);
 
         // STEP 46: Return a success response indicating successful deletion
         return ApiResponse<bool>.NoContent();

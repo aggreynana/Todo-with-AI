@@ -1,0 +1,48 @@
+services:
+  todo-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: todo-api
+    ports:
+      - "5000:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DbConnection=Host=postgres;Port=5432;Database=TodoDb;Username=postgres;Password=aggrey909
+      - ConnectionStrings__Redis=redis:6379
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - todo-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: todo-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - todo-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: todo-postgres
+    environment:
+      - POSTGRES_DB=TodoDb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=aggrey909
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - todo-network
+
+networks:
+  todo-network:
+    driver: bridge
+
+volumes:
+  postgres-data:

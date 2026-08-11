@@ -9,26 +9,23 @@ using Todo.Storage.Repository.Interfaces;
 
 namespace Todo.Services.Providers;
 
-// STEP 1: Implement the IActivityService interface
-// This class contains the business logic for Activity operations
-// It acts as a bridge between the controller and the repository layer
 public class ActivityService : IActivityService
 {
-    // STEP 2: Inject the IActivityRepository through constructor injection
-    // This follows the dependency injection pattern for loose coupling
     private readonly IActivityRepository _activityRepository;
+    private readonly ICacheService _cacheService;
 
-    public ActivityService(IActivityRepository activityRepository)
+    public ActivityService(IActivityRepository activityRepository, ICacheService cacheService)
     {
         _activityRepository = activityRepository;
+        _cacheService = cacheService;
     }
 
-    // STEP 3: Implement CreateActivityAsync method
-    // This method handles the creation of a new activity
     public async Task<ApiResponse<GetActivityResponseDto>> CreateActivityAsync(CreateActivityRequestDto activityDto)
     {
-        // STEP 4: Map the DTO to the entity
-        // Convert the incoming DTO to the domain entity for database operations
+        var activity = await _activityRepository.GetActivityById(activityDto.UserId);
+
+        if (activity != null) return ApiResponse<GetActivityResponseDto>.FailedDependency();
+        
         var activityEntity = new ActivityEntity
         {
             UserId = activityDto.UserId,
@@ -39,49 +36,48 @@ public class ActivityService : IActivityService
             CategoryId = activityDto.CategoryId,
             StartedOn = activityDto.StartedOn,
             EndedOn = activityDto.EndedOn
-            // Id and CreatedOn are set automatically in BaseEntity
         };
 
-        // STEP 5: Call the repository to add the entity to the database
         var result = await _activityRepository.AddActivityAsync(activityEntity);
 
-        // STEP 6: Check if the operation was successful
         if (!result)
         {
-            // STEP 7: Return an error response if creation failed
             return ApiResponse<GetActivityResponseDto>.InternalServerError();
         }
 
-        // STEP 8: Map the entity back to DTO for the response
         var responseDto = MapToResponseDto(activityEntity);
 
-        // STEP 9: Return a success response with the created activity
         return ApiResponse<GetActivityResponseDto>.CreatedResponse("Activity", responseDto);
     }
 
-    // STEP 10: Implement GetActivityByIdAsync method
-    // This method retrieves a single activity by its unique identifier
     public async Task<ApiResponse<GetActivityResponseDto>?> GetActivityByIdAsync(string id)
     {
-        // STEP 11: Call the repository to get the activity
-        var activityEntity = await _activityRepository.GetActivityById(id);
-
-        // STEP 12: Check if the activity exists
-        if (activityEntity == null)
+        // Try to get from cache first
+        var cacheKey = $"activity_{id}";
+        var cachedActivity = await _cacheService.GetAsync<GetActivityResponseDto>(cacheKey);
+        
+        if (cachedActivity != null)
         {
-            // STEP 13: Return null if activity not found
-            return null;
+            return ApiResponse<GetActivityResponseDto>.OkResponse("Activity retrieved from cache", cachedActivity);
         }
 
-        // STEP 14: Map the entity to DTO
+        var activityEntity = await _activityRepository.GetActivityById(id);
+
+        if (activityEntity == null)
+        {
+            return ApiResponse<GetActivityResponseDto>.NoContent();
+        }
+
+        // Map the entity to DTO
         var responseDto = MapToResponseDto(activityEntity);
+
+        // Cache the result for 5 minutes
+        await _cacheService.SetAsync(cacheKey, responseDto, TimeSpan.FromMinutes(5));
 
         // STEP 15: Return the activity in a success response
         return ApiResponse<GetActivityResponseDto>.OkResponse("Activity retrieved successfully", responseDto);
     }
 
-    // Implement GetActivitiesAsync method with pagination and filtering
-    // This method retrieves activities from the database with pagination and filtering support
     public async Task<ApiResponse<PageResultResponseDto<GetActivityResponseDto>>> GetActivitiesAsync(ActivityFilterDto? activityFilter = null)
     {
         // Use default filter if not provided
@@ -90,10 +86,8 @@ public class ActivityService : IActivityService
         // Call the repository with filter
         var activityPageResult = await _activityRepository.GetActivitiesWithPaginationAsync(filter);
 
-        // Map entities to DTOs
         var activityDtos = activityPageResult.Records.Select(MapToResponseDto).ToList();
 
-        // Create paginated response with metadata
         var pageResult = new PageResultResponseDto<GetActivityResponseDto>
         {
             Page = activityPageResult.Page,
@@ -103,7 +97,6 @@ public class ActivityService : IActivityService
             TotalPages = activityPageResult.TotalPages
         };
 
-        // Return paginated response
         return ApiResponse<PageResultResponseDto<GetActivityResponseDto>>.OkResponse("Activities retrieved successfully", pageResult);
     }
 
@@ -122,36 +115,33 @@ public class ActivityService : IActivityService
         }
 
         // STEP 28: Update only the fields that are provided (partial update)
-        if (activityUpdate.Title != null)
-            existingActivity.Title = activityUpdate.Title;
-        if (activityUpdate.Description != null)
-            existingActivity.Description = activityUpdate.Description;
         if (activityUpdate.Status.HasValue)
             existingActivity.Status = activityUpdate.Status.Value;
         if (activityUpdate.Priority.HasValue)
             existingActivity.Priority = activityUpdate.Priority.Value;
-        if (activityUpdate.CategoryId != null)
-            existingActivity.CategoryId = activityUpdate.CategoryId;
-        if (activityUpdate.StartedOn.HasValue)
-            existingActivity.StartedOn = activityUpdate.StartedOn;
-        if (activityUpdate.EndedOn.HasValue)
-            existingActivity.EndedOn = activityUpdate.EndedOn;
 
-        // STEP 29: Set the ModifiedOn timestamp
+        existingActivity.Title = activityUpdate.Title ?? string.Empty;
+        existingActivity.Description = activityUpdate.Description;
+        existingActivity.CategoryId = activityUpdate.CategoryId ?? string.Empty;
+        existingActivity.StartedOn = activityUpdate.StartedOn;
+        existingActivity.EndedOn = activityUpdate.EndedOn;
         existingActivity.ModifiedOn = DateTime.UtcNow;
 
-        // STEP 30: Call the repository to update the entity
+        
         var result = await _activityRepository.UpdateActivityAsync(existingActivity);
 
-        // STEP 31: Check if the update was successful
+        
         if (!result)
         {
-            // STEP 32: Return an error response if update failed
             return ApiResponse<GetActivityResponseDto>.InternalServerError();
         }
 
-        // STEP 33: Map the updated entity to DTO
+        
         var responseDto = MapToResponseDto(existingActivity);
+
+        // Invalidate cache for this activity
+        var cacheKey = $"activity_{id}";
+        await _cacheService.RemoveAsync(cacheKey);
 
         // STEP 34: Return a success response with the updated activity
         return ApiResponse<GetActivityResponseDto>.AcceptedResponse();
@@ -172,14 +162,18 @@ public class ActivityService : IActivityService
         }
 
         // STEP 39: Call the repository to delete the entity
-        var result = await _activityRepository.DeleteActivityByIdAsync(existingActivity);
+        var isActivityDeleted = await _activityRepository.DeleteActivityByIdAsync(existingActivity);
 
         // STEP 40: Check if the deletion was successful
-        if (!result)
+        if (!isActivityDeleted)
         {
             // STEP 41: Return an error response if deletion failed
             return ApiResponse<bool>.InternalServerError();
         }
+
+        // Invalidate cache for this activity
+        var cacheKey = $"activity_{id}";
+        await _cacheService.RemoveAsync(cacheKey);
 
         // STEP 42: Return a success response indicating successful deletion
         return ApiResponse<bool>.NoContent();

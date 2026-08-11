@@ -46,6 +46,7 @@ public static class ServiceCollectionExtension
         services.AddScoped<ICommentService, CommentService>();
         services.AddScoped<IFileAttachmentService, FileAttachmentService>();
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<ICacheService, CacheService>();
 
         return services;
     }

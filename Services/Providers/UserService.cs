@@ -21,13 +21,15 @@ public class UserService : IUserService
     private readonly IPasswordHasher<UserEntity> _passwordHasher;
     private readonly IJwtTokenService _jwtTokenService;
     private readonly JwtSettings _jwtSettings;
+    private readonly ICacheService _cacheService;
 
-    public UserService(IUserRepository userRepository, IPasswordHasher<UserEntity> passwordHasher, IJwtTokenService jwtTokenService, JwtSettings jwtSettings)
+    public UserService(IUserRepository userRepository, IPasswordHasher<UserEntity> passwordHasher, IJwtTokenService jwtTokenService, JwtSettings jwtSettings, ICacheService cacheService)
     {
         _userRepository = userRepository;
         _passwordHasher = passwordHasher;
         _jwtTokenService = jwtTokenService;
         _jwtSettings = jwtSettings;
+        _cacheService = cacheService;
     }
 
     // STEP 3: Implement CreateUserAsync method
@@ -41,8 +43,7 @@ public class UserService : IUserService
             if (user != null)
                 return ApiResponse<AuthResponseDto>.Conflict();
 
-            // STEP 4: Map the DTO to the entity
-            // Convert the incoming DTO to the domain entity for database operations
+
             var userEntity = new UserEntity
             {
                 FirstName = userDto.FirstName,
@@ -99,6 +100,15 @@ public class UserService : IUserService
     // This method retrieves a single user by its unique identifier
     public async Task<ApiResponse<GetUserResponseDto>?> GetUserByIdAsync(string id)
     {
+        // Try to get from cache first
+        var cacheKey = $"user_{id}";
+        var cachedUser = await _cacheService.GetAsync<GetUserResponseDto>(cacheKey);
+
+        if (cachedUser != null)
+        {
+            return ApiResponse<GetUserResponseDto>.OkResponse("User retrieved from cache", cachedUser);
+        }
+
         // STEP 12: Call the repository to get the user
         var userEntity = await _userRepository.GetUserById(id);
 
@@ -111,6 +121,9 @@ public class UserService : IUserService
 
         // STEP 15: Map the entity to DTO
         var responseDto = MapToResponseDto(userEntity);
+
+        // Cache the result for 5 minutes
+        await _cacheService.SetAsync(cacheKey, responseDto, TimeSpan.FromMinutes(5));
 
         // STEP 16: Return the user in a success response
         return ApiResponse<GetUserResponseDto>.OkResponse("User retrieved successfully", responseDto);
@@ -179,6 +192,10 @@ public class UserService : IUserService
         // STEP 30: Map the updated entity to DTO
         var responseDto = MapToResponseDto(existingUser);
 
+        // Invalidate cache for this user
+        var cacheKey = $"user_{id}";
+        await _cacheService.RemoveAsync(cacheKey);
+
         // STEP 31: Return a success response with the updated user
         return ApiResponse<GetUserResponseDto>.AcceptedResponse();
     }
@@ -206,6 +223,10 @@ public class UserService : IUserService
             // STEP 38: Return an error response if deletion failed
             return ApiResponse<bool>.InternalServerError();
         }
+
+        // Invalidate cache for this user
+        var cacheKey = $"user_{id}";
+        await _cacheService.RemoveAsync(cacheKey);
 
         // STEP 39: Return a success response indicating successful deletion
         return ApiResponse<bool>.NoContent();

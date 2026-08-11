@@ -13,5 +13,6 @@ public class LoginRequestDto
 
     // STEP 3: Add required Password field
     [Required(ErrorMessage = "Password is required")]
+    [RegularExpression("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*()])(.{8,})$", ErrorMessage = "The password must contain at least one upper case, one lower case, one special character, one digit, and has a minimum length of 8 characters")]
     public string Password { get; set; } = string.Empty;
 }

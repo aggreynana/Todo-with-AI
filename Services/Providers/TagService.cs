@@ -9,68 +9,62 @@ using Todo.Storage.Repository.Interfaces;
 
 namespace Todo.Services.Providers;
 
-// STEP 1: Implement the ITagService interface
-// This class contains the business logic for Tag operations
-// It acts as a bridge between the controller and the repository layer
 public class TagService : ITagService
 {
-    // STEP 2: Inject the ITagRepository through constructor injection
-    // This follows the dependency injection pattern for loose coupling
     private readonly ITagRepository _tagRepository;
+    private readonly ICacheService _cacheService;
 
-    public TagService(ITagRepository tagRepository)
+    public TagService(ITagRepository tagRepository, ICacheService cacheService)
     {
         _tagRepository = tagRepository;
+        _cacheService = cacheService;
     }
 
-    // STEP 3: Implement CreateTagAsync method
-    // This method handles the creation of a new tag
     public async Task<ApiResponse<GetTagResponseDto>> CreateTagAsync(CreateTagRequestDto tagDto)
     {
-        // STEP 4: Map the DTO to the entity
-        // Convert the incoming DTO to the domain entity for database operations
         var tagEntity = new TagEntity
         {
             UserId = tagDto.UserId,
             Name = tagDto.Name
-            // Id and CreatedOn are set automatically in BaseEntity
+
         };
 
-        // STEP 5: Call the repository to add the entity to the database
         var result = await _tagRepository.AddTagAsync(tagEntity);
 
-        // STEP 6: Check if the operation was successful
         if (!result)
         {
-            // STEP 7: Return an error response if creation failed
             return ApiResponse<GetTagResponseDto>.InternalServerError();
         }
 
-        // STEP 8: Map the entity back to DTO for the response
         var responseDto = MapToResponseDto(tagEntity);
 
-        // STEP 9: Return a success response with the created tag
         return ApiResponse<GetTagResponseDto>.CreatedResponse("Tag", responseDto);
     }
 
-    // STEP 10: Implement GetTagByIdAsync method
-    // This method retrieves a single tag by its unique identifier
+
     public async Task<ApiResponse<GetTagResponseDto>?> GetTagByIdAsync(string id)
     {
-        // STEP 11: Call the repository to get the tag
-        var tagEntity = await _tagRepository.GetTagById(id);
+        // Try to get from cache first
+        var cacheKey = $"tag_{id}";
+        var cachedTag = await _cacheService.GetAsync<GetTagResponseDto>(cacheKey);
 
-        // STEP 12: Check if the tag exists
-        if (tagEntity == null)
+        if (cachedTag != null)
         {
-            // STEP 13: Return null if tag not found
-            return null;
+            return ApiResponse<GetTagResponseDto>.OkResponse("Tag retrieved from cache", cachedTag);
         }
 
-        // STEP 14: Map the entity to DTO
+        var tagEntity = await _tagRepository.GetTagById(id);
+
+        if (tagEntity == null)
+        {
+            return ApiResponse<GetTagResponseDto>.InternalServerError();
+        }
+
         var responseDto = MapToResponseDto(tagEntity);
 
-        // STEP 15: Return the tag in a success response
+        // Cache the result for 5 minutes
+        await _cacheService.SetAsync(cacheKey, responseDto, TimeSpan.FromMinutes(5));
+
         return ApiResponse<GetTagResponseDto>.OkResponse("Tag retrieved successfully", responseDto);
     }
 
@@ -135,6 +129,10 @@ public class TagService : ITagService
         // STEP 33: Map the updated entity to DTO
         var responseDto = MapToResponseDto(existingTag);
 
+        // Invalidate cache for this tag
+        var cacheKey = $"tag_{id}";
+        await _cacheService.RemoveAsync(cacheKey);
+
         // STEP 34: Return a success response with the updated tag
         return ApiResponse<GetTagResponseDto>.AcceptedResponse();
     }
@@ -162,6 +160,10 @@ public class TagService : ITagService
             // STEP 41: Return an error response if deletion failed
             return ApiResponse<bool>.InternalServerError();
         }
+
+        // Invalidate cache for this tag
+        var cacheKey = $"tag_{id}";
+        await _cacheService.RemoveAsync(cacheKey);
 
         // STEP 42: Return a success response indicating successful deletion
         return ApiResponse<bool>.NoContent();

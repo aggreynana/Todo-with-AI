@@ -7,16 +7,32 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- JWT Bearer authentication for securing API endpoints -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="7.0.0" />
+    <!-- ASP.NET Core Identity for user management and password hashing -->
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="7.0.0" />
+    <!-- OpenAPI support for API documentation -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="7.0.0" />
+    <!-- Entity Framework Core for database operations -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="7.0.0" />
+    <!-- EF Core design-time tools for migrations -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="7.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- EF Core relational database support -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="7.0.0" />
+    <!-- Redis distributed cache integration for ASP.NET Core -->
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
+    <!-- PostgreSQL database provider for Entity Framework Core -->
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="7.0.0" />
+    <!-- Serilog integration for ASP.NET Core logging -->
+    <PackageReference Include="Serilog.AspNetCore" Version="7.0.0" />
+    <!-- Serilog enrichers for environment information (machine name, username) -->
+    <PackageReference Include="Serilog.Enrichers.Environment" Version="2.2.0" />
+    <!-- Redis client for direct Redis operations -->
+    <PackageReference Include="StackExchange.Redis" Version="3.1.13" />
+    <!-- Swagger/OpenAPI generator for API documentation UI -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
   </ItemGroup>
 

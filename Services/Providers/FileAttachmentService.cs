@@ -9,26 +9,25 @@ using Todo.Storage.Repository.Interfaces;
 
 namespace Todo.Services.Providers;
 
-// STEP 1: Implement the IFileAttachmentService interface
-// This class contains the business logic for FileAttachment operations
-// It acts as a bridge between the controller and the repository layer
 public class FileAttachmentService : IFileAttachmentService
 {
-    // STEP 2: Inject the IFileAttachmentRepository through constructor injection
-    // This follows the dependency injection pattern for loose coupling
     private readonly IFileAttachmentRepository _fileAttachmentRepository;
+    private readonly ICacheService _cacheService;
 
-    public FileAttachmentService(IFileAttachmentRepository fileAttachmentRepository)
+    public FileAttachmentService(IFileAttachmentRepository fileAttachmentRepository, ICacheService cacheService)
     {
         _fileAttachmentRepository = fileAttachmentRepository;
+        _cacheService = cacheService;
     }
 
     // STEP 3: Implement CreateFileAttachmentAsync method
     // This method handles the creation of a new file attachment
     public async Task<ApiResponse<GetFileAttachmentResponseDto>> CreateFileAttachmentAsync(CreateFileAttachmentRequestDto fileAttachmentDto)
     {
-        // STEP 4: Map the DTO to the entity
-        // Convert the incoming DTO to the domain entity for database operations
+        var file = await _fileAttachmentRepository.GetFileAttachmentById(fileAttachmentDto.FileName);
+
+        if (file != null) return ApiResponse<GetFileAttachmentResponseDto>.FailedDependency();
+
         var fileAttachmentEntity = new FileAttachmentEntity
         {
             UserId = fileAttachmentDto.UserId,
@@ -37,44 +36,48 @@ public class FileAttachmentService : IFileAttachmentService
             FilePath = fileAttachmentDto.FilePath,
             ContentType = fileAttachmentDto.ContentType,
             UpLoadedOn = fileAttachmentDto.UpLoadedOn ?? DateTime.UtcNow
-            // Id and CreatedOn are set automatically in BaseEntity
         };
 
-        // STEP 5: Call the repository to add the entity to the database
         var result = await _fileAttachmentRepository.AddFileAttachmentAsync(fileAttachmentEntity);
 
-        // STEP 6: Check if the operation was successful
         if (!result)
         {
-            // STEP 7: Return an error response if creation failed
             return ApiResponse<GetFileAttachmentResponseDto>.InternalServerError();
         }
 
-        // STEP 8: Map the entity back to DTO for the response
+        // Map the entity back to DTO for the response
         var responseDto = MapToResponseDto(fileAttachmentEntity);
 
-        // STEP 9: Return a success response with the created file attachment
         return ApiResponse<GetFileAttachmentResponseDto>.CreatedResponse("FileAttachment", responseDto);
     }
 
-    // STEP 10: Implement GetFileAttachmentByIdAsync method
-    // This method retrieves a single file attachment by its unique identifier
+
     public async Task<ApiResponse<GetFileAttachmentResponseDto>?> GetFileAttachmentByIdAsync(string id)
     {
-        // STEP 11: Call the repository to get the file attachment
-        var fileAttachmentEntity = await _fileAttachmentRepository.GetFileAttachmentById(id);
+        // Try to get from cache first
+        var cacheKey = $"fileattachment_{id}";
+        var cachedFileAttachment = await _cacheService.GetAsync<GetFileAttachmentResponseDto>(cacheKey);
 
-        // STEP 12: Check if the file attachment exists
-        if (fileAttachmentEntity == null)
+        if (cachedFileAttachment != null)
         {
-            // STEP 13: Return null if file attachment not found
-            return null;
+            return ApiResponse<GetFileAttachmentResponseDto>.OkResponse("File attachment retrieved from cache", cachedFileAttachment);
         }
 
-        // STEP 14: Map the entity to DTO
+        var fileAttachmentEntity = await _fileAttachmentRepository.GetFileAttachmentById(id);
+
+
+        if (fileAttachmentEntity == null)
+        {
+            return ApiResponse<GetFileAttachmentResponseDto>.InternalServerError();
+        }
+
+        //  Map the entity to DTO
         var responseDto = MapToResponseDto(fileAttachmentEntity);
 
-        // STEP 15: Return the file attachment in a success response
+        // Cache the result for 5 minutes
+        await _cacheService.SetAsync(cacheKey, responseDto, TimeSpan.FromMinutes(5));
+
+        // Return the file attachment in a success response
         return ApiResponse<GetFileAttachmentResponseDto>.OkResponse("File attachment retrieved successfully", responseDto);
     }
 
@@ -122,12 +125,12 @@ public class FileAttachmentService : IFileAttachmentService
         // STEP 32: Update only the fields that are provided (partial update)
         if (fileAttachmentUpdate.FileName != null)
             existingFileAttachment.FileName = fileAttachmentUpdate.FileName;
-        if (fileAttachmentUpdate.FilePath != null)
-            existingFileAttachment.FilePath = fileAttachmentUpdate.FilePath;
+            
         if (fileAttachmentUpdate.ContentType != null)
             existingFileAttachment.ContentType = fileAttachmentUpdate.ContentType;
-        if (fileAttachmentUpdate.UpLoadedOn.HasValue)
-            existingFileAttachment.UpLoadedOn = fileAttachmentUpdate.UpLoadedOn;
+            
+        existingFileAttachment.FilePath = fileAttachmentUpdate.FilePath;
+        existingFileAttachment.UpLoadedOn = fileAttachmentUpdate.UpLoadedOn;
 
         // STEP 33: Set the ModifiedOn timestamp
         existingFileAttachment.ModifiedOn = DateTime.UtcNow;
@@ -144,6 +147,10 @@ public class FileAttachmentService : IFileAttachmentService
 
         // STEP 37: Map the updated entity to DTO
         var responseDto = MapToResponseDto(existingFileAttachment);
+
+        // Invalidate cache for this file attachment
+        var cacheKey = $"fileattachment_{id}";
+        await _cacheService.RemoveAsync(cacheKey);
 
         // STEP 38: Return a success response with the updated file attachment
         return ApiResponse<GetFileAttachmentResponseDto>.AcceptedResponse();
@@ -172,6 +179,10 @@ public class FileAttachmentService : IFileAttachmentService
             // STEP 45: Return an error response if deletion failed
             return ApiResponse<bool>.InternalServerError();
         }
+
+        // Invalidate cache for this file attachment
+        var cacheKey = $"fileattachment_{id}";
+        await _cacheService.RemoveAsync(cacheKey);
 
         // STEP 46: Return a success response indicating successful deletion
         return ApiResponse<bool>.NoContent();

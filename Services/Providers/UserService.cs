@@ -1,12 +1,13 @@
 using System.Linq;
 using System;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Logging;
 using Todo.Entities;
 using Todo.Model;
 using Todo.Model.FilterDto;
 using Todo.Model.UserDto;
 using Todo.Services.Interfaces;
 using Todo.Storage.Repository.Interfaces;
-using Microsoft.AspNetCore.Identity;
 
 namespace Todo.Services.Providers;
 
@@ -22,27 +23,30 @@ public class UserService : IUserService
     private readonly IJwtTokenService _jwtTokenService;
     private readonly JwtSettings _jwtSettings;
     private readonly ICacheService _cacheService;
+    private readonly ILogger<UserService> _logger;
 
-    public UserService(IUserRepository userRepository, IPasswordHasher<UserEntity> passwordHasher, IJwtTokenService jwtTokenService, JwtSettings jwtSettings, ICacheService cacheService)
+    public UserService(IUserRepository userRepository, IPasswordHasher<UserEntity> passwordHasher, IJwtTokenService jwtTokenService, JwtSettings jwtSettings, ICacheService cacheService, ILogger<UserService> logger)
     {
         _userRepository = userRepository;
         _passwordHasher = passwordHasher;
         _jwtTokenService = jwtTokenService;
         _jwtSettings = jwtSettings;
         _cacheService = cacheService;
+        _logger = logger;
     }
 
-    // STEP 3: Implement CreateUserAsync method
-    // This method handles the creation of a new user with auto-login functionality
+
     public async Task<ApiResponse<AuthResponseDto>> CreateUserAsync(CreateUserRequestDto userDto)
     {
         try
         {
-            // First check if the user already exists in our database
+            _logger.LogInformation("Creating new user with email: {Email}", userDto.Email);
             var user = await _userRepository.GetUserByEmailAsync(userDto.Email);
             if (user != null)
+            {
+                _logger.LogWarning("User creation failed - user already exists with email: {Email}", userDto.Email);
                 return ApiResponse<AuthResponseDto>.Conflict();
-
+            }
 
             var userEntity = new UserEntity
             {
@@ -50,31 +54,24 @@ public class UserService : IUserService
                 MiddleName = userDto.MiddleName,
                 LastName = userDto.LastName,
                 Email = userDto.Email,
-                // Id and CreatedOn are set automatically in BaseEntity
             };
 
-            // STEP 5: Hash the password using ASP.NET Core Identity's password hasher
-            // This provides secure password hashing before storing in the database
             userEntity.PasswordHash = _passwordHasher.HashPassword(userEntity, userDto.Password);
 
-            // STEP 6: Call the repository to add the entity to the database
             var isUserAdded = await _userRepository.AddUserAsync(userEntity);
 
-            // STEP 7: Check if the operation was successful
             if (!isUserAdded)
             {
-                // STEP 8: Return an error response if creation failed
+                _logger.LogError("User creation failed for email: {Email}", userDto.Email);
                 return ApiResponse<AuthResponseDto>.InternalServerError();
             }
 
-            // STEP 9: Generate JWT token for the newly created user
-            // This provides auto-login functionality after registration
             var token = _jwtTokenService.GenerateJwtToken(userEntity);
 
-            // STEP 10: Calculate token expiration time using JwtSettings
+            // Calculate token expiration time using JwtSettings
             var expiration = DateTime.UtcNow.AddMinutes(_jwtSettings.ExpirationInMinutes);
 
-            // STEP 11: Map the entity back to DTO for the response
+            // Map the entity back to DTO for the response
             var responseDto = new AuthResponseDto()
             {
                 Token = token,
@@ -85,54 +82,53 @@ public class UserService : IUserService
                 LastName = userEntity.LastName
             };
 
-            // STEP 12: Return a success response with the created user
+            _logger.LogInformation("User created successfully with ID: {UserId}", userEntity.Id);
             return ApiResponse<AuthResponseDto>.CreatedResponse("User", responseDto);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Log the exception (consider adding logging here)
-            // Return a generic error response to avoid exposing sensitive information
+            _logger.LogError(ex, "User creation failed with exception for email: {Email}", userDto.Email);
             return ApiResponse<AuthResponseDto>.InternalServerError();
         }
     }
 
-    // STEP 11: Implement GetUserByIdAsync method
-    // This method retrieves a single user by its unique identifier
+
     public async Task<ApiResponse<GetUserResponseDto>?> GetUserByIdAsync(string id)
     {
+        _logger.LogInformation("Fetching user with ID: {UserId}", id);
         // Try to get from cache first
         var cacheKey = $"user_{id}";
         var cachedUser = await _cacheService.GetAsync<GetUserResponseDto>(cacheKey);
 
         if (cachedUser != null)
         {
+            _logger.LogInformation("User retrieved from cache with ID: {UserId}", id);
             return ApiResponse<GetUserResponseDto>.OkResponse("User retrieved from cache", cachedUser);
         }
 
-        // STEP 12: Call the repository to get the user
         var userEntity = await _userRepository.GetUserById(id);
 
-        // STEP 13: Check if the user exists
         if (userEntity == null)
         {
-            // STEP 14: Return null if user not found
+            _logger.LogWarning("User not found with ID: {UserId}", id);
             return ApiResponse<GetUserResponseDto>.Conflict();
         }
 
-        // STEP 15: Map the entity to DTO
+        // Map the entity to DTO
         var responseDto = MapToResponseDto(userEntity);
 
         // Cache the result for 5 minutes
         await _cacheService.SetAsync(cacheKey, responseDto, TimeSpan.FromMinutes(5));
 
-        // STEP 16: Return the user in a success response
+        _logger.LogInformation("User retrieved successfully with ID: {UserId}", id);
+
         return ApiResponse<GetUserResponseDto>.OkResponse("User retrieved successfully", responseDto);
     }
 
-    // Implement GetUsersAsync method with pagination and filtering
-    // This method retrieves users from the database with pagination and filtering support
+
     public async Task<ApiResponse<PageResultResponseDto<GetUserResponseDto>>> GetUsersAsync(UserFilterDto? userFilter = null)
     {
+        _logger.LogInformation("Fetching users with filter: {@Filter}", userFilter);
         // Use default filter if not provided
         var filter = userFilter ?? new UserFilterDto();
 
@@ -152,75 +148,67 @@ public class UserService : IUserService
             TotalPages = userPageResult.TotalPages
         };
 
-        // Return paginated response
+        _logger.LogInformation("Retrieved {Count} users", userDtos.Count);
+
         return ApiResponse<PageResultResponseDto<GetUserResponseDto>>.OkResponse("Users retrieved successfully", pageResult);
     }
 
-    // STEP 21: Implement UpdateUserAsync method
-    // This method updates an existing user
+
     public async Task<ApiResponse<GetUserResponseDto>> UpdateUserAsync(string id, UpdateUserRequestDto userUpdate)
     {
-        // STEP 22: First, retrieve the existing user by ID
+        _logger.LogInformation("Updating user with ID: {UserId}", id);
+
         var existingUser = await _userRepository.GetUserById(id);
 
-        // STEP 23: Check if the user exists
+
         if (existingUser == null)
         {
-            // STEP 24: Return an error response if user not found
+            _logger.LogWarning("User not found for update with ID: {UserId}", id);
             return ApiResponse<GetUserResponseDto>.NotFound("User not found");
         }
 
-        // STEP 25: Update only the fields that are provided (partial update)
-        // Note: Email is not updated as it's used as an identifier
+        // Email is not updated as it's used as an identifier
         existingUser.FirstName = userUpdate.FirstName;
         existingUser.MiddleName = userUpdate.MiddleName;
         existingUser.LastName = userUpdate.LastName;
-
-        // STEP 26: Set the ModifiedOn timestamp
         existingUser.ModifiedOn = DateTime.UtcNow;
 
-        // STEP 27: Call the repository to update the entity
         var isUserUpdated = await _userRepository.UpdateUSerAsync(existingUser);
 
-        // STEP 28: Check if the update was successful
         if (!isUserUpdated)
         {
-            // STEP 29: Return an error response if update failed
+            _logger.LogError("User update failed for ID: {UserId}", id);
             return ApiResponse<GetUserResponseDto>.InternalServerError();
         }
 
-        // STEP 30: Map the updated entity to DTO
+        // Map the updated entity to DTO
         var responseDto = MapToResponseDto(existingUser);
 
         // Invalidate cache for this user
         var cacheKey = $"user_{id}";
         await _cacheService.RemoveAsync(cacheKey);
 
-        // STEP 31: Return a success response with the updated user
+        _logger.LogInformation("User updated successfully with ID: {UserId}", id);
         return ApiResponse<GetUserResponseDto>.AcceptedResponse();
     }
 
-    // STEP 32: Implement DeleteUserByIdAsync method
-    // This method deletes a user by its ID
+
     public async Task<ApiResponse<bool>> DeleteUserByIdAsync(string id)
     {
-        // STEP 33: First, retrieve the existing user
+        _logger.LogInformation("Deleting user with ID: {UserId}", id);
         var existingUser = await _userRepository.GetUserById(id);
 
-        // STEP 34: Check if the user exists
         if (existingUser == null)
         {
-            // STEP 35: Return an error response if user not found
+            _logger.LogWarning("User not found for deletion with ID: {UserId}", id);
             return ApiResponse<bool>.NotFound("User not found");
         }
 
-        // STEP 36: Call the repository to delete the entity
         var isUserDeleted = await _userRepository.DeleteUserByIdAsync(existingUser);
 
-        // STEP 37: Check if the deletion was successful
         if (!isUserDeleted)
         {
-            // STEP 38: Return an error response if deletion failed
+            _logger.LogError("User deletion failed for ID: {UserId}", id);
             return ApiResponse<bool>.InternalServerError();
         }
 
@@ -228,7 +216,7 @@ public class UserService : IUserService
         var cacheKey = $"user_{id}";
         await _cacheService.RemoveAsync(cacheKey);
 
-        // STEP 39: Return a success response indicating successful deletion
+        _logger.LogInformation("User deleted successfully with ID: {UserId}", id);
         return ApiResponse<bool>.NoContent();
     }
 

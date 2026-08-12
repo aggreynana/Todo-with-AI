@@ -1,5 +1,6 @@
 using System.Linq;
 using System;
+using Microsoft.Extensions.Logging;
 using Todo.Entities;
 using Todo.Model;
 using Todo.Model.FilterDto;
@@ -13,15 +14,18 @@ public class TagService : ITagService
 {
     private readonly ITagRepository _tagRepository;
     private readonly ICacheService _cacheService;
+    private readonly ILogger<TagService> _logger;
 
-    public TagService(ITagRepository tagRepository, ICacheService cacheService)
+    public TagService(ITagRepository tagRepository, ICacheService cacheService, ILogger<TagService> logger)
     {
         _tagRepository = tagRepository;
         _cacheService = cacheService;
+        _logger = logger;
     }
 
     public async Task<ApiResponse<GetTagResponseDto>> CreateTagAsync(CreateTagRequestDto tagDto)
     {
+        _logger.LogInformation("Creating tag for user: {UserId}, name: {Name}", tagDto.UserId, tagDto.Name);
         var tagEntity = new TagEntity
         {
             UserId = tagDto.UserId,
@@ -33,10 +37,12 @@ public class TagService : ITagService
 
         if (!result)
         {
+            _logger.LogError("Tag creation failed for user: {UserId}", tagDto.UserId);
             return ApiResponse<GetTagResponseDto>.InternalServerError();
         }
 
         var responseDto = MapToResponseDto(tagEntity);
+        _logger.LogInformation("Tag created successfully with ID: {TagId}", tagEntity.Id);
 
         return ApiResponse<GetTagResponseDto>.CreatedResponse("Tag", responseDto);
     }
@@ -44,12 +50,14 @@ public class TagService : ITagService
 
     public async Task<ApiResponse<GetTagResponseDto>?> GetTagByIdAsync(string id)
     {
+        _logger.LogInformation("Fetching tag with ID: {TagId}", id);
         // Try to get from cache first
         var cacheKey = $"tag_{id}";
         var cachedTag = await _cacheService.GetAsync<GetTagResponseDto>(cacheKey);
 
         if (cachedTag != null)
         {
+            _logger.LogInformation("Tag retrieved from cache with ID: {TagId}", id);
             return ApiResponse<GetTagResponseDto>.OkResponse("Tag retrieved from cache", cachedTag);
         }
 
@@ -57,6 +65,7 @@ public class TagService : ITagService
 
         if (tagEntity == null)
         {
+            _logger.LogWarning("Tag not found with ID: {TagId}", id);
             return ApiResponse<GetTagResponseDto>.InternalServerError();
         }
 
@@ -65,17 +74,16 @@ public class TagService : ITagService
         // Cache the result for 5 minutes
         await _cacheService.SetAsync(cacheKey, responseDto, TimeSpan.FromMinutes(5));
 
+        _logger.LogInformation("Tag retrieved successfully with ID: {TagId}", id);
         return ApiResponse<GetTagResponseDto>.OkResponse("Tag retrieved successfully", responseDto);
     }
 
-    // Implement GetTagsAsync method with pagination and filtering
-    // This method retrieves tags from the database with pagination and filtering support
+
     public async Task<ApiResponse<PageResultResponseDto<GetTagResponseDto>>> GetTagsAsync(TagFilterDto? tagFilter = null)
     {
-        // Use default filter if not provided
+        _logger.LogInformation("Fetching tags with filter: {@Filter}", tagFilter);
         var filter = tagFilter ?? new TagFilterDto();
 
-        // Call the repository with filter
         var tagPageResult = await _tagRepository.GetTagsWithPaginationAsync(filter);
 
         // Map entities to DTOs
@@ -91,38 +99,33 @@ public class TagService : ITagService
             TotalPages = tagPageResult.TotalPages
         };
 
-        // Return paginated response
+        _logger.LogInformation("Retrieved {Count} tags", tagDtos.Count);
         return ApiResponse<PageResultResponseDto<GetTagResponseDto>>.OkResponse("Tags retrieved successfully", pageResult);
     }
 
-    // STEP 24: Implement UpdateTagAsync method
-    // This method updates an existing tag
     public async Task<ApiResponse<GetTagResponseDto>> UpdateTagAsync(string id, UpdateTagRequestDto tagUpdate)
     {
-        // STEP 25: First, retrieve the existing tag
+        _logger.LogInformation("Updating tag with ID: {TagId}", id);
+
         var existingTag = await _tagRepository.GetTagById(id);
 
-        // STEP 26: Check if the tag exists
         if (existingTag == null)
         {
-            // STEP 27: Return an error response if tag not found
+            _logger.LogWarning("Tag not found for update with ID: {TagId}", id);
             return ApiResponse<GetTagResponseDto>.NotFound("Tag not found");
         }
 
-        // STEP 28: Update only the fields that are provided (partial update)
+        // Update only the fields that are provided (partial update)
         if (tagUpdate.Name != null)
             existingTag.Name = tagUpdate.Name;
 
-        // STEP 29: Set the ModifiedOn timestamp
         existingTag.ModifiedOn = DateTime.UtcNow;
 
-        // STEP 30: Call the repository to update the entity
         var result = await _tagRepository.UpdateTagAsync(existingTag);
 
-        // STEP 31: Check if the update was successful
         if (!result)
         {
-            // STEP 32: Return an error response if update failed
+            _logger.LogError("Tag update failed for ID: {TagId}", id);
             return ApiResponse<GetTagResponseDto>.InternalServerError();
         }
 
@@ -133,31 +136,27 @@ public class TagService : ITagService
         var cacheKey = $"tag_{id}";
         await _cacheService.RemoveAsync(cacheKey);
 
-        // STEP 34: Return a success response with the updated tag
+        _logger.LogInformation("Tag updated successfully with ID: {TagId}", id);
         return ApiResponse<GetTagResponseDto>.AcceptedResponse();
     }
 
-    // STEP 35: Implement DeleteTagByIdAsync method
-    // This method deletes a tag by its ID
+
     public async Task<ApiResponse<bool>> DeleteTagByIdAsync(string id)
     {
-        // STEP 36: First, retrieve the existing tag
+        _logger.LogInformation("Deleting tag with ID: {TagId}", id);
         var existingTag = await _tagRepository.GetTagById(id);
 
-        // STEP 37: Check if the tag exists
         if (existingTag == null)
         {
-            // STEP 38: Return an error response if tag not found
+            _logger.LogWarning("Tag not found for deletion with ID: {TagId}", id);
             return ApiResponse<bool>.NotFound("Tag not found");
         }
 
-        // STEP 39: Call the repository to delete the entity
         var result = await _tagRepository.DeleteTagByIdAsync(existingTag);
 
-        // STEP 40: Check if the deletion was successful
         if (!result)
         {
-            // STEP 41: Return an error response if deletion failed
+            _logger.LogError("Tag deletion failed for ID: {TagId}", id);
             return ApiResponse<bool>.InternalServerError();
         }
 
@@ -165,12 +164,11 @@ public class TagService : ITagService
         var cacheKey = $"tag_{id}";
         await _cacheService.RemoveAsync(cacheKey);
 
-        // STEP 42: Return a success response indicating successful deletion
+        _logger.LogInformation("Tag deleted successfully with ID: {TagId}", id);
         return ApiResponse<bool>.NoContent();
     }
 
-    // STEP 43: Create a helper method to map Entity to DTO
-    // This private method reduces code duplication and ensures consistent mapping
+
     private static GetTagResponseDto MapToResponseDto(TagEntity entity)
     {
         return new GetTagResponseDto

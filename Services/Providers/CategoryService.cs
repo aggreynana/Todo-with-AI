@@ -1,5 +1,6 @@
 using System.Linq;
 using System;
+using Microsoft.Extensions.Logging;
 using Todo.Entities;
 using Todo.Model;
 using Todo.Model.CategoryDto;
@@ -13,18 +14,25 @@ public class CategoryService : ICategoryService
 {
     private readonly ICategoryRepository _categoryRepository;
     private readonly ICacheService _cacheService;
+    private readonly ILogger<CategoryService> _logger;
 
-    public CategoryService(ICategoryRepository categoryRepository, ICacheService cacheService)
+    public CategoryService(ICategoryRepository categoryRepository, ICacheService cacheService, ILogger<CategoryService> logger)
     {
         _categoryRepository = categoryRepository;
         _cacheService = cacheService;
+        _logger = logger;
     }
 
     public async Task<ApiResponse<GetCategoryResponseDto>> CreateCategoryAsync(CreateCategoryRequestDto categoryDto)
     {
+        _logger.LogInformation("Creating category for user: {UserId}, name: {Name}", categoryDto.UserId, categoryDto.Name);
         var category = await _categoryRepository.GetCategoryById(categoryDto.UserId);
 
-        if (category != null) return ApiResponse<GetCategoryResponseDto>.FailedDependency();
+        if (category != null)
+        {
+            _logger.LogWarning("Category creation failed - category already exists for user: {UserId}", categoryDto.UserId);
+            return ApiResponse<GetCategoryResponseDto>.FailedDependency();
+        }
 
         var categoryEntity = new CategoryEntity
         {
@@ -37,23 +45,27 @@ public class CategoryService : ICategoryService
         // Check if the operation was successful
         if (!result)
         {
+            _logger.LogError("Category creation failed for user: {UserId}", categoryDto.UserId);
             return ApiResponse<GetCategoryResponseDto>.InternalServerError();
         }
 
         // Map the entity back to DTO for the response
         var responseDto = MapToResponseDto(categoryEntity);
+        _logger.LogInformation("Category created successfully with ID: {CategoryId}", categoryEntity.Id);
 
         return ApiResponse<GetCategoryResponseDto>.CreatedResponse("Category", responseDto);
     }
 
     public async Task<ApiResponse<GetCategoryResponseDto>?> GetCategoryByIdAsync(string id)
     {
+        _logger.LogInformation("Fetching category with ID: {CategoryId}", id);
         // Try to get from cache first
         var cacheKey = $"category_{id}";
         var cachedCategory = await _cacheService.GetAsync<GetCategoryResponseDto>(cacheKey);
 
         if (cachedCategory != null)
         {
+            _logger.LogInformation("Category retrieved from cache with ID: {CategoryId}", id);
             return ApiResponse<GetCategoryResponseDto>.OkResponse("Category retrieved from cache", cachedCategory);
         }
 
@@ -61,6 +73,7 @@ public class CategoryService : ICategoryService
 
         if (categoryEntity == null)
         {
+            _logger.LogWarning("Category not found with ID: {CategoryId}", id);
             return ApiResponse<GetCategoryResponseDto>.InternalServerError();
         }
 
@@ -70,18 +83,17 @@ public class CategoryService : ICategoryService
         // Cache the result for 5 minutes
         await _cacheService.SetAsync(cacheKey, responseDto, TimeSpan.FromMinutes(5));
 
-
+        _logger.LogInformation("Category retrieved successfully with ID: {CategoryId}", id);
         return ApiResponse<GetCategoryResponseDto>.OkResponse("Category retrieved successfully", responseDto);
     }
 
-    // Implement GetCategoriesAsync method with pagination and filtering
-    // This method retrieves categories from the database with pagination and filtering support
+
     public async Task<ApiResponse<PageResultResponseDto<GetCategoryResponseDto>>> GetCategoriesAsync(CategoryFilterDto? categoryFilter = null)
     {
+        _logger.LogInformation("Fetching categories with filter: {@Filter}", categoryFilter);
         // Use default filter if not provided
         var filter = categoryFilter ?? new CategoryFilterDto();
 
-        
         var categoryPageResult = await _categoryRepository.GetCategoriesWithPaginationAsync(filter);
 
         var categoryDtos = categoryPageResult.Records.Select(MapToResponseDto).ToList();
@@ -96,18 +108,20 @@ public class CategoryService : ICategoryService
             TotalPages = categoryPageResult.TotalPages
         };
 
+        _logger.LogInformation("Retrieved {Count} categories", categoryDtos.Count);
         return ApiResponse<PageResultResponseDto<GetCategoryResponseDto>>.OkResponse("Categories retrieved successfully", pageResult);
     }
 
-    // STEP 24: Implement UpdateCategoryAsync method
-    // This method updates an existing category
+
     public async Task<ApiResponse<GetCategoryResponseDto>> UpdateCategoryAsync(string id, UpdateCategoryRequestDto categoryUpdate)
     {
+        _logger.LogInformation("Updating category with ID: {CategoryId}", id);
         // STEP 25: First, retrieve the existing category
         var existingCategory = await _categoryRepository.GetCategoryById(id);
 
         if (existingCategory == null)
         {
+            _logger.LogWarning("Category not found for update with ID: {CategoryId}", id);
             return ApiResponse<GetCategoryResponseDto>.NotFound("Category not found");
         }
 
@@ -121,9 +135,9 @@ public class CategoryService : ICategoryService
         // STEP 30: Call the repository to update the entity
         var result = await _categoryRepository.UpdateCategoryAsync(existingCategory);
 
-
         if (!result)
         {
+            _logger.LogError("Category update failed for ID: {CategoryId}", id);
             return ApiResponse<GetCategoryResponseDto>.InternalServerError();
         }
 
@@ -133,26 +147,27 @@ public class CategoryService : ICategoryService
         var cacheKey = $"category_{id}";
         await _cacheService.RemoveAsync(cacheKey);
 
+        _logger.LogInformation("Category updated successfully with ID: {CategoryId}", id);
         return ApiResponse<GetCategoryResponseDto>.OkResponse("Category updated Successfully", responseDto);
     }
 
-    // STEP 35: Implement DeleteCategoryByIdAsync method
-    // This method deletes a category by its ID
     public async Task<ApiResponse<bool>> DeleteCategoryByIdAsync(string id)
     {
+        _logger.LogInformation("Deleting category with ID: {CategoryId}", id);
         // STEP 36: First, retrieve the existing category
         var existingCategory = await _categoryRepository.GetCategoryById(id);
 
         if (existingCategory == null)
         {
+            _logger.LogWarning("Category not found for deletion with ID: {CategoryId}", id);
             return ApiResponse<bool>.NotFound("Category not found");
         }
 
         var result = await _categoryRepository.DeleteCategoryByIdAsync(existingCategory);
 
-
         if (!result)
         {
+            _logger.LogError("Category deletion failed for ID: {CategoryId}", id);
             return ApiResponse<bool>.InternalServerError();
         }
 
@@ -160,6 +175,7 @@ public class CategoryService : ICategoryService
         var cacheKey = $"category_{id}";
         await _cacheService.RemoveAsync(cacheKey);
 
+        _logger.LogInformation("Category deleted successfully with ID: {CategoryId}", id);
         return ApiResponse<bool>.NoContent();
     }
 

@@ -1,5 +1,6 @@
 using System.Linq;
 using System;
+using Microsoft.Extensions.Logging;
 using Todo.Entities;
 using Todo.Model;
 using Todo.Model.ActivityDto;
@@ -13,19 +14,26 @@ public class ActivityService : IActivityService
 {
     private readonly IActivityRepository _activityRepository;
     private readonly ICacheService _cacheService;
+    private readonly ILogger<ActivityService> _logger;
 
-    public ActivityService(IActivityRepository activityRepository, ICacheService cacheService)
+    public ActivityService(IActivityRepository activityRepository, ICacheService cacheService, ILogger<ActivityService> logger)
     {
         _activityRepository = activityRepository;
         _cacheService = cacheService;
+        _logger = logger;
     }
 
     public async Task<ApiResponse<GetActivityResponseDto>> CreateActivityAsync(CreateActivityRequestDto activityDto)
     {
+        _logger.LogInformation("Creating activity for user: {UserId}, title: {Title}", activityDto.UserId, activityDto.Title);
         var activity = await _activityRepository.GetActivityById(activityDto.UserId);
 
-        if (activity != null) return ApiResponse<GetActivityResponseDto>.FailedDependency();
-        
+        if (activity != null)
+        {
+            _logger.LogWarning("Activity creation failed - activity already exists for user: {UserId}", activityDto.UserId);
+            return ApiResponse<GetActivityResponseDto>.FailedDependency();
+        }
+
         var activityEntity = new ActivityEntity
         {
             UserId = activityDto.UserId,
@@ -42,22 +50,26 @@ public class ActivityService : IActivityService
 
         if (!result)
         {
+            _logger.LogError("Activity creation failed for user: {UserId}", activityDto.UserId);
             return ApiResponse<GetActivityResponseDto>.InternalServerError();
         }
 
         var responseDto = MapToResponseDto(activityEntity);
+        _logger.LogInformation("Activity created successfully with ID: {ActivityId}", activityEntity.Id);
 
         return ApiResponse<GetActivityResponseDto>.CreatedResponse("Activity", responseDto);
     }
 
     public async Task<ApiResponse<GetActivityResponseDto>?> GetActivityByIdAsync(string id)
     {
+        _logger.LogInformation("Fetching activity with ID: {ActivityId}", id);
         // Try to get from cache first
         var cacheKey = $"activity_{id}";
         var cachedActivity = await _cacheService.GetAsync<GetActivityResponseDto>(cacheKey);
-        
+
         if (cachedActivity != null)
         {
+            _logger.LogInformation("Activity retrieved from cache with ID: {ActivityId}", id);
             return ApiResponse<GetActivityResponseDto>.OkResponse("Activity retrieved from cache", cachedActivity);
         }
 
@@ -65,6 +77,7 @@ public class ActivityService : IActivityService
 
         if (activityEntity == null)
         {
+            _logger.LogWarning("Activity not found with ID: {ActivityId}", id);
             return ApiResponse<GetActivityResponseDto>.NoContent();
         }
 
@@ -74,12 +87,14 @@ public class ActivityService : IActivityService
         // Cache the result for 5 minutes
         await _cacheService.SetAsync(cacheKey, responseDto, TimeSpan.FromMinutes(5));
 
+        _logger.LogInformation("Activity retrieved successfully with ID: {ActivityId}", id);
         // STEP 15: Return the activity in a success response
         return ApiResponse<GetActivityResponseDto>.OkResponse("Activity retrieved successfully", responseDto);
     }
 
     public async Task<ApiResponse<PageResultResponseDto<GetActivityResponseDto>>> GetActivitiesAsync(ActivityFilterDto? activityFilter = null)
     {
+        _logger.LogInformation("Fetching activities with filter: {@Filter}", activityFilter);
         // Use default filter if not provided
         var filter = activityFilter ?? new ActivityFilterDto();
 
@@ -97,24 +112,23 @@ public class ActivityService : IActivityService
             TotalPages = activityPageResult.TotalPages
         };
 
+        _logger.LogInformation("Retrieved {Count} activities", activityDtos.Count);
         return ApiResponse<PageResultResponseDto<GetActivityResponseDto>>.OkResponse("Activities retrieved successfully", pageResult);
     }
 
-    // STEP 24: Implement UpdateActivityAsync method
-    // This method updates an existing activity
+
     public async Task<ApiResponse<GetActivityResponseDto>> UpdateActivityAsync(string id, UpdateActivityRequestDto activityUpdate)
     {
-        // STEP 25: First, retrieve the existing activity
+        _logger.LogInformation("Updating activity with ID: {ActivityId}", id);
+
         var existingActivity = await _activityRepository.GetActivityById(id);
 
-        // STEP 26: Check if the activity exists
         if (existingActivity == null)
         {
-            // STEP 27: Return an error response if activity not found
+            _logger.LogWarning("Activity not found for update with ID: {ActivityId}", id);
             return ApiResponse<GetActivityResponseDto>.NotFound("Activity not found");
         }
 
-        // STEP 28: Update only the fields that are provided (partial update)
         if (activityUpdate.Status.HasValue)
             existingActivity.Status = activityUpdate.Status.Value;
         if (activityUpdate.Priority.HasValue)
@@ -127,47 +141,42 @@ public class ActivityService : IActivityService
         existingActivity.EndedOn = activityUpdate.EndedOn;
         existingActivity.ModifiedOn = DateTime.UtcNow;
 
-        
         var result = await _activityRepository.UpdateActivityAsync(existingActivity);
 
-        
         if (!result)
         {
+            _logger.LogError("Activity update failed for ID: {ActivityId}", id);
             return ApiResponse<GetActivityResponseDto>.InternalServerError();
         }
 
-        
         var responseDto = MapToResponseDto(existingActivity);
 
         // Invalidate cache for this activity
         var cacheKey = $"activity_{id}";
         await _cacheService.RemoveAsync(cacheKey);
 
-        // STEP 34: Return a success response with the updated activity
+        _logger.LogInformation("Activity updated successfully with ID: {ActivityId}", id);
         return ApiResponse<GetActivityResponseDto>.AcceptedResponse();
     }
 
-    // STEP 35: Implement DeleteActivityByIdAsync method
-    // This method deletes an activity by its ID
+
     public async Task<ApiResponse<bool>> DeleteActivityByIdAsync(string id)
     {
-        // STEP 36: First, retrieve the existing activity
+        _logger.LogInformation("Deleting activity with ID: {ActivityId}", id);
+
         var existingActivity = await _activityRepository.GetActivityById(id);
 
-        // STEP 37: Check if the activity exists
         if (existingActivity == null)
         {
-            // STEP 38: Return an error response if activity not found
+            _logger.LogWarning("Activity not found for deletion with ID: {ActivityId}", id);
             return ApiResponse<bool>.NotFound("Activity not found");
         }
 
-        // STEP 39: Call the repository to delete the entity
         var isActivityDeleted = await _activityRepository.DeleteActivityByIdAsync(existingActivity);
 
-        // STEP 40: Check if the deletion was successful
         if (!isActivityDeleted)
         {
-            // STEP 41: Return an error response if deletion failed
+            _logger.LogError("Activity deletion failed for ID: {ActivityId}", id);
             return ApiResponse<bool>.InternalServerError();
         }
 
@@ -175,7 +184,7 @@ public class ActivityService : IActivityService
         var cacheKey = $"activity_{id}";
         await _cacheService.RemoveAsync(cacheKey);
 
-        // STEP 42: Return a success response indicating successful deletion
+        _logger.LogInformation("Activity deleted successfully with ID: {ActivityId}", id);
         return ApiResponse<bool>.NoContent();
     }
 

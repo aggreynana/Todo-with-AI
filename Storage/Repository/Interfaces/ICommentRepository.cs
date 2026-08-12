@@ -11,8 +11,5 @@ public interface ICommentRepository
     Task<bool> UpdateCommentAsync(CommentEntity comment);
     Task<bool> DeleteCommentByIdAsync(CommentEntity comment);
 
-    // Pagination method using FilterDto approach
-    // This method supports filtering, sorting, and pagination
-    // Returns PageResultResponseDto with all pagination metadata
     Task<PageResultResponseDto<CommentEntity>> GetCommentsWithPaginationAsync(CommentFilterDto commentFilter);
 }

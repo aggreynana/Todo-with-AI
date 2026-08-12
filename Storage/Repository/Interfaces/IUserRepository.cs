@@ -12,8 +12,5 @@ public interface IUserRepository
     Task<bool> UpdateUSerAsync(UserEntity user);
     Task<bool> DeleteUserByIdAsync(UserEntity user);
 
-    // Pagination method using FilterDto approach
-    // This method supports filtering, sorting, and pagination
-    // Returns PageResultResponseDto with all pagination metadata
     Task<PageResultResponseDto<UserEntity>> GetUsersWithPaginationAsync(UserFilterDto userFilter);
 }

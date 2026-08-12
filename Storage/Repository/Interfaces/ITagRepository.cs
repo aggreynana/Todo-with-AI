@@ -11,8 +11,5 @@ public interface ITagRepository
     Task<bool> UpdateTagAsync(TagEntity tag);
     Task<bool> DeleteTagByIdAsync(TagEntity tag);
 
-    // Pagination method using FilterDto approach
-    // This method supports filtering, sorting, and pagination
-    // Returns PageResultResponseDto with all pagination metadata
     Task<PageResultResponseDto<TagEntity>> GetTagsWithPaginationAsync(TagFilterDto tagFilter);
 }

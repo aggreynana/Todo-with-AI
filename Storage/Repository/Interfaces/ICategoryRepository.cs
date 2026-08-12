@@ -11,8 +11,5 @@ public interface ICategoryRepository
     Task<bool> UpdateCategoryAsync(CategoryEntity category);
     Task<bool> DeleteCategoryByIdAsync(CategoryEntity category);
 
-    // Pagination method using FilterDto approach
-    // This method supports filtering, sorting, and pagination
-    // Returns PageResultResponseDto with all pagination metadata
     Task<PageResultResponseDto<CategoryEntity>> GetCategoriesWithPaginationAsync(CategoryFilterDto categoryFilter);
 }

@@ -11,8 +11,5 @@ public interface IActivityRepository
     Task<bool> UpdateActivityAsync(ActivityEntity activity);
     Task<bool> DeleteActivityByIdAsync(ActivityEntity activity);
 
-    // Pagination method using FilterDto approach
-    // This method supports filtering, sorting, and pagination
-    // Returns PageResultResponseDto with all pagination metadata
     Task<PageResultResponseDto<ActivityEntity>> GetActivitiesWithPaginationAsync(ActivityFilterDto activityFilter);
 }

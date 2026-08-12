@@ -1,5 +1,3 @@
-using System.Linq;
-using System;
 using Todo.Entities;
 using Todo.Model;
 using Todo.Model.CommentDto;
@@ -13,15 +11,18 @@ public class CommentService : ICommentService
 {
     private readonly ICommentRepository _commentRepository;
     private readonly ICacheService _cacheService;
+    private readonly ILogger<CommentService> _logger;
 
-    public CommentService(ICommentRepository commentRepository, ICacheService cacheService)
+    public CommentService(ICommentRepository commentRepository, ICacheService cacheService, ILogger<CommentService> logger)
     {
         _commentRepository = commentRepository;
         _cacheService = cacheService;
+        _logger = logger;
     }
 
     public async Task<ApiResponse<GetCommentResponseDto>> CreateCommentAsync(CreateCommentRequestDto commentDto)
     {
+        _logger.LogInformation("Creating comment for activity: {ActivityId} by user: {UserId}", commentDto.ActivityId, commentDto.UserId);
         var commentEntity = new CommentEntity
         {
             UserId = commentDto.UserId,
@@ -33,10 +34,12 @@ public class CommentService : ICommentService
 
         if (!result)
         {
+            _logger.LogError("Comment creation failed for activity: {ActivityId}", commentDto.ActivityId);
             return ApiResponse<GetCommentResponseDto>.InternalServerError();
         }
 
         var responseDto = MapToResponseDto(commentEntity);
+        _logger.LogInformation("Comment created successfully with ID: {CommentId}", commentEntity.Id);
 
         return ApiResponse<GetCommentResponseDto>.CreatedResponse("Comment", responseDto);
     }
@@ -44,46 +47,42 @@ public class CommentService : ICommentService
 
     public async Task<ApiResponse<GetCommentResponseDto>?> GetCommentByIdAsync(string id)
     {
+        _logger.LogInformation("Fetching comment with ID: {CommentId}", id);
         // Try to get from cache first
         var cacheKey = $"comment_{id}";
         var cachedComment = await _cacheService.GetAsync<GetCommentResponseDto>(cacheKey);
 
         if (cachedComment != null)
         {
+            _logger.LogInformation("Comment retrieved from cache with ID: {CommentId}", id);
             return ApiResponse<GetCommentResponseDto>.OkResponse("Comment retrieved from cache", cachedComment);
         }
 
-        // STEP 11: Call the repository to get the comment
         var commentEntity = await _commentRepository.GetCommentById(id);
 
-        // STEP 12: Check if the comment exists
         if (commentEntity == null)
         {
-            // STEP 13: Return null if comment not found
+            _logger.LogWarning("Comment not found with ID: {CommentId}", id);
             return null;
         }
 
-        // STEP 14: Map the entity to DTO
         var responseDto = MapToResponseDto(commentEntity);
 
         // Cache the result for 5 minutes
         await _cacheService.SetAsync(cacheKey, responseDto, TimeSpan.FromMinutes(5));
 
-        // STEP 15: Return the comment in a success response
+        _logger.LogInformation("Comment retrieved successfully with ID: {CommentId}", id);
         return ApiResponse<GetCommentResponseDto>.OkResponse("Comment retrieved successfully", responseDto);
     }
 
-    // Implement GetCommentsAsync method with pagination and filtering
-    // This method retrieves comments from the database with pagination and filtering support
+
     public async Task<ApiResponse<PageResultResponseDto<GetCommentResponseDto>>> GetCommentsAsync(CommentFilterDto? commentFilter = null)
     {
-        // Use default filter if not provided
+        _logger.LogInformation("Fetching comments with filter: {@Filter}", commentFilter);
         var filter = commentFilter ?? new CommentFilterDto();
 
-        // Call the repository with filter
         var commentPageResult = await _commentRepository.GetCommentsWithPaginationAsync(filter);
 
-        // Map entities to DTOs
         var commentDtos = commentPageResult.Records.Select(MapToResponseDto).ToList();
 
         // Create paginated response with metadata
@@ -96,73 +95,72 @@ public class CommentService : ICommentService
             TotalPages = commentPageResult.TotalPages
         };
 
-        // Return paginated response
+        _logger.LogInformation("Retrieved {Count} comments", commentDtos.Count);
+
         return ApiResponse<PageResultResponseDto<GetCommentResponseDto>>.OkResponse("Comments retrieved successfully", pageResult);
     }
 
-    // STEP 28: Implement UpdateCommentAsync method
-    // This method updates an existing comment
+
     public async Task<ApiResponse<GetCommentResponseDto>> UpdateCommentAsync(string id, UpdateCommentRequestDto commentUpdate)
     {
-        // STEP 29: First, retrieve the existing comment
+        _logger.LogInformation("Updating comment with ID: {CommentId}", id);
         var existingComment = await _commentRepository.GetCommentById(id);
 
-        // STEP 30: Check if the comment exists
         if (existingComment == null)
         {
-            // STEP 31: Return an error response if comment not found
+            _logger.LogWarning("Comment not found for update with ID: {CommentId}", id);
             return ApiResponse<GetCommentResponseDto>.NotFound("Comment not found");
         }
 
         // STEP 32: Update only the fields that are provided (partial update)
-        if (commentUpdate.Message != null)
+        if (commentUpdate.Message != null) 
             existingComment.Message = commentUpdate.Message;
 
-        // STEP 33: Set the ModifiedOn timestamp
         existingComment.ModifiedOn = DateTime.UtcNow;
 
-        // STEP 34: Call the repository to update the entity
+
         var result = await _commentRepository.UpdateCommentAsync(existingComment);
 
-        // STEP 35: Check if the update was successful
         if (!result)
         {
-            // STEP 36: Return an error response if update failed
+            _logger.LogError("Comment update failed for ID: {CommentId}", id);
+
             return ApiResponse<GetCommentResponseDto>.InternalServerError();
         }
 
-        // STEP 37: Map the updated entity to DTO
+        // Map the updated entity to DTO
         var responseDto = MapToResponseDto(existingComment);
 
         // Invalidate cache for this comment
         var cacheKey = $"comment_{id}";
         await _cacheService.RemoveAsync(cacheKey);
 
-        // STEP 38: Return a success response with the updated comment
+        _logger.LogInformation("Comment updated successfully with ID: {CommentId}", id);
         return ApiResponse<GetCommentResponseDto>.AcceptedResponse();
     }
 
-    // STEP 39: Implement DeleteCommentByIdAsync method
+    // Implement DeleteCommentByIdAsync method
     // This method deletes a comment by its ID
     public async Task<ApiResponse<bool>> DeleteCommentByIdAsync(string id)
     {
+        _logger.LogInformation("Deleting comment with ID: {CommentId}", id);
         // STEP 40: First, retrieve the existing comment
         var existingComment = await _commentRepository.GetCommentById(id);
 
-        // STEP 41: Check if the comment exists
+        // Check if the comment exists
         if (existingComment == null)
         {
-            // STEP 42: Return an error response if comment not found
+            _logger.LogWarning("Comment not found for deletion with ID: {CommentId}", id);
+
             return ApiResponse<bool>.NotFound("Comment not found");
         }
 
-        // STEP 43: Call the repository to delete the entity
         var result = await _commentRepository.DeleteCommentByIdAsync(existingComment);
 
-        // STEP 44: Check if the deletion was successful
+        // Check if the deletion was successful
         if (!result)
         {
-            // STEP 45: Return an error response if deletion failed
+            _logger.LogError("Comment deletion failed for ID: {CommentId}", id);
             return ApiResponse<bool>.InternalServerError();
         }
 
@@ -170,11 +168,11 @@ public class CommentService : ICommentService
         var cacheKey = $"comment_{id}";
         await _cacheService.RemoveAsync(cacheKey);
 
-        // STEP 46: Return a success response indicating successful deletion
+        _logger.LogInformation("Comment deleted successfully with ID: {CommentId}", id);
         return ApiResponse<bool>.NoContent();
     }
 
-    // STEP 47: Create a helper method to map Entity to DTO
+    // Create a helper method to map Entity to DTO
     // This private method reduces code duplication and ensures consistent mapping
     private static GetCommentResponseDto MapToResponseDto(CommentEntity entity)
     {

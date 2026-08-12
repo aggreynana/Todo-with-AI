@@ -1,8 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Serilog;
+using Todo.Logging;
 
-namespace Todo.Logging;
+namespace Todo.Extension;
 
 public static class HostBuilderExtensions
 {

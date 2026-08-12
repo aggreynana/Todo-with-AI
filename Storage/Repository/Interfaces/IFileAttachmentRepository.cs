@@ -11,8 +11,5 @@ public interface IFileAttachmentRepository
     Task<bool> UpdateFileAttachmentAsync(FileAttachmentEntity fileAttachment);
     Task<bool> DeleteFileAttachmentByIdAsync(FileAttachmentEntity fileAttachment);
 
-    // Pagination method using FilterDto approach
-    // This method supports filtering, sorting, and pagination
-    // Returns PageResultResponseDto with all pagination metadata
     Task<PageResultResponseDto<FileAttachmentEntity>> GetFileAttachmentsWithPaginationAsync(FileAttachmentFilterDto fileAttachmentFilter);
 }
